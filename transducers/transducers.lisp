@@ -17,7 +17,8 @@
            #:intersperse #:enumerate #:step #:scan
            #:log
            #:once
-           #:from-csv #:into-csv)
+           #:from-csv #:into-csv
+           #:lazy #:force #:ensure-forced)
   ;; --- Higher Order Transducers --- ;;
   (:export #:branch #:inject #:split)
   ;; --- Reducers -- ;;
@@ -43,6 +44,86 @@
 (defstruct reduced
   "A wrapper that signals that reduction has completed."
   val)
+
+(defstruct (thunk (:constructor %make-thunk)
+                  (:print-function (lambda (thunk stream depth)
+                                     (declare (ignore depth))
+                                     (print-unreadable-object (thunk stream :type t :identity t)
+                                       (if (thunk-computed thunk)
+                                           (format stream "value: ~a" (thunk-result thunk))
+                                           (princ "<NOT COMPUTED>" stream))))))
+  (result)
+  (computed nil :type boolean))
+
+(declaim (ftype (function (thunk) t) force*))
+(defun force* (thunk)
+  "Run computation if necessary, returning the result.
+
+After running the computation, the value will be memoized. Subsequent calls to
+`force*' will return the memoized result and not run the computation again."
+  (if (thunk-computed thunk)
+      (thunk-result thunk)
+      (let ((result (funcall (thunk-result thunk))))
+        (setf (thunk-computed thunk) t)
+        (setf (thunk-result thunk) result))))
+
+(defun ensure-forced* (maybe-thunk)
+  "Ensure potential `thunk' is computed.
+
+Returns the computed value. If MAYBE-THUNK is not `thunk-p', return it
+unmodified."
+  (if (thunk-p maybe-thunk)
+      (force* maybe-thunk)
+      maybe-thunk))
+
+(declaim (ftype (function ((function () *)) thunk) lazy*))
+(defun lazy* (fn)
+  "Wrap FN in a `thunk' for lazy evaluation.
+
+Compute the value with `force*'. The computation is only run once. Once
+computed, `force*' will return a memoized value."
+  (%make-thunk :result fn))
+
+#+nil
+(let ((thunk (lazy* (lambda () (print 'computing) 42))))
+     (force* thunk)
+     (force* thunk))
+
+(defmacro lazy (&body body)
+  "Wrap BODY in a `thunk' for lazy evaluation.
+
+Compute the value with `force*'. The computation is only run once. Once
+computed, `force*' will return a memoized value.
+
+This is a shorthand for `lazy*' to avoid creating a lambda."
+  `(lazy* (lambda () ,@body)))
+
+#+nil
+(let ((thunk (lazy (print 'computing) 42)))
+     (force* thunk)
+     (force* thunk))
+
+(defun force ()
+  "Transducer: Run `force*' on each value of the transduction. Signals an error
+for values which is not `thunk'. See `ensure-forced*' for a safer transducer."
+  (map #'force*))
+
+#+nil
+(transduce (force) #'cons (list (lazy 'thunk)))
+#+nil
+(transduce (force) #'cons (list 'signals-error))
+
+(defun ensure-forced ()
+  "Transducer: Run `ensure-forced*' on each value of the transduction. Makes
+sure there are no `thunk' which can cause problems for transducers which
+inspects the values. E.g. transducers like `filter' need to look at the value to
+know if it should be included or not, and needs the result of the computation
+within the thunk, and not the thunk itself. See `force' for a more performant
+transducer."
+  (map #'ensure-forced*))
+
+#+nil
+(transduce (ensure-forced) #'cons (list (lazy 'thunk) 'non-thunk))
 
 (defun pass (reducer)
   "Transducer: Just pass along each value of the transduction. Same in intent with

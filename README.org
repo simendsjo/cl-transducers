@@ -212,6 +212,109 @@ bound using =destructuring-bind=
 #+RESULTS:
 : T
 
+*** Lazily computed values
+
+NOTE: This feature is *not* transparent and must be used with care!
+
+Expensive computations that might never be needed can be wrapped in =lazy=. This
+wraps the computation in a type which must be evaluated explicitly. The value is
+memoized, so evaluating it again will only return the cached value.
+
+=lazy= wrappes the computation is a structure, so transducers looking at the
+value will always consider it as true. In order to run the computation and
+unpack the result, you must use =ensure-forced=.
+
+Before calling transducers which looks at the value itself (=map=, =filter=,
+=take-while= etc), =ensure-forced= must be called to evaluate the computation.
+It will replace the structure with the calculated value.
+
+In the following example we see the structure returned unevaluated.
+#+begin_src lisp :exports both
+(in-package :transducers)
+(pipe (list 1 (lazy 2) 2)
+      #'pass
+      #'cons)
+#+end_src
+
+#+RESULTS:
+: (1 #<THUNK <NOT COMPUTED> {10177F7C83}> 2)
+
+By calling =ensure-forced=, the values will be computed, and the computed result
+will replace the structure.
+
+#+begin_src lisp :exports both :results value verbatim
+(in-package :transducers)
+(pipe (list 1 (lazy 2) 3)
+      (ensure-forced)
+      #'cons)
+#+end_src
+
+#+RESULTS:
+: (1 2 3)
+
+There is also a slightly more optimized version available if you know all your
+values are thunks.
+
+#+begin_src lisp :exports both :results value verbatim
+(in-package :transducers)
+(pipe (list (lazy 1))
+      (force)
+      #'cons)
+#+end_src
+
+#+RESULTS:
+: (1)
+
+=force= blows up when called on non-lazy values:
+#+begin_src lisp :exports both
+(in-package :transducers)
+(handler-case (pipe (list 1)
+                    (force)
+                    #'cons)
+  (error (e) e))
+#+end_src
+
+#+RESULTS:
+: #<TYPE-ERROR expected-type: THUNK datum: 1>
+
+Transducers which drops the value can be used safely. The following doesn't
+signal as =drop= doesn't have to look at the input.
+#+begin_src lisp :exports both
+(in-package :transducers)
+(pipe (list (lazy (error "error") 1) 2)
+      (drop 1)
+      #'+)
+#+end_src
+
+#+RESULTS:
+: 2
+
+The following shows the problem. =map= will try to operate of the lazy
+structure, not the value contained within.
+
+#+begin_src lisp :exports both
+(in-package :transducers)
+(handler-case (pipe (list (lazy 1) 2)
+                    (map #'1+)
+                    #'+)
+  (error (e) e))
+#+end_src
+
+#+RESULTS:
+: #<TYPE-ERROR expected-type: NUMBER datum: #<THUNK <NOT COMPUTED> {1017A31B93}>>
+
+
+#+begin_src lisp :exports both
+(in-package :transducers)
+(pipe (list (lazy 1) 2)
+      (ensure-forced)
+      (map #'1+)
+      #'+)
+#+end_src
+
+#+RESULTS:
+: 5
+
 ** Processing JSON Data
 
 The system =transducers/jzon= provides automatic JSON streaming support via the

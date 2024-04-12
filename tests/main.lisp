@@ -104,6 +104,17 @@
     (is equal '(1 2 3)    (sort (t:transduce (t:map #'cdr) #'t:cons table) #'<))
     (is equal '(:a :b :c) (sort (t:transduce (t:map #'car) #'t:cons table) #'string<))))
 
+(define-test "Lazy"
+  :parent transduction
+  :depends-on (reduction)
+  (is equal '(thunk)
+      (t:transduce (t:force) #'t:cons (list (t:lazy 'thunk))))
+  (is equal '(thunk non-thunk)
+      (t:transduce (t:ensure-forced) #'t:cons (list (t:lazy 'thunk) 'non-thunk)))
+  (is equal 'error
+      (handler-case (t:transduce (t:force) #'t:for-each (list 'non-thunk))
+        (type-error () 'error))))
+
 (define-test "Other"
   :parent transduction
   :depends-on (reduction)
