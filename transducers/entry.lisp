@@ -51,6 +51,13 @@ sources. See `sources.lisp' and `entry.lisp' for examples of how to do this.
 
 "))
 
+(defmacro pipe* (fn source &rest transducers-and-reducer)
+  (let ((transducers (butlast transducers-and-reducer))
+        (reducer (car (cl:last transducers-and-reducer))))
+    (if (cdr transducers)
+        `(,fn (comp ,@transducers) ,reducer ,source)
+        `(,fn ,(car transducers) ,reducer ,source))))
+
 (defmacro pipe (source &rest transducers-and-reducer)
   "Structure `transduce' as a pipeline.
 
@@ -66,11 +73,23 @@ than one transducer, they are wrapped in `comp'.
 "
   (assert (>= (length transducers-and-reducer) 2) nil
           "Missing transducer or reducer.")
-  (let ((transducers (butlast transducers-and-reducer))
-        (reducer (car (cl:last transducers-and-reducer))))
-    (if (cdr transducers)
-        `(transduce (comp ,@transducers) ,reducer ,source)
-        `(transduce ,(car transducers) ,reducer ,source))))
+  `(pipe* transduce ,source ,@transducers-and-reducer))
+
+(defmacro iter* (source &rest transducers-and-reducer)
+  `(pipe* iterator ,source ,@transducers-and-reducer))
+
+(defmacro iter (source &rest transducers)
+  (if transducers
+      `(pipe* iterator ,source ,@transducers #'pass-reducer)
+      `(pipe* iterator ,source #'pass #'pass-reducer)))
+
+(defgeneric iterator (xform f source))
+
+(defmethod iterator (xform f source)
+  (funcall (make-iterator xform f) (if (source-iter-p source)
+                                       source
+                                       (source->source-iter source))))
+
 #+nil
 (pipe '(1 2 3) (take 1) #'*)
 #+nil
@@ -124,6 +143,9 @@ it is bound by `let', if it's a list, it's bound by `destructuring-bind'.
 #+nil
 (for ((k v) '((:a 1) (:b 2)))
   (format t "~a=~a~%" k v))
+
+(defmethod transduce (xform f (source source-iter))
+  (source-iter-transduce xform f source))
 
 (defmethod transduce (xform f (source list))
   "Transducing over an alist works automatically via this method, and the pairs are

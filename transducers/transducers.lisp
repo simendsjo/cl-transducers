@@ -7,7 +7,8 @@
   ;; --- Entry Points --- ;;
   (:export #:transduce
            #:pipe
-           #:for)
+           #:for
+           #:iter #:iter* #:next)
   ;; --- Transducers -- ;;
   (:export #:pass #:map
            #:filter #:filter-map #:unique #:dedup
