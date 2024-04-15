@@ -188,9 +188,9 @@ responsiblity of the caller!"
   (source-iter-transduce xform f (source->source-iter source)))
 
 (defstruct source-iter
-  (next (lambda () *done*))
-  (initialize (lambda ()))
-  (finalize (lambda ())))
+  (next (lambda () *done*) :type (function () t))
+  (initialize (lambda ()) :type (function () t))
+  (finalize (lambda ()) :type (function () t)))
 
 (declaim (ftype (function (list) source-iter) list-iter))
 (defun list-iter (list)
@@ -229,6 +229,7 @@ responsiblity of the caller!"
 (defun string-iter (string)
   (vector-iter string))
 
+(declaim (ftype (function (pathname) source-iter) file-line-iter))
 (defun file-line-iter (pathname)
   (let ((file nil))
     (make-source-iter :next (lambda ()
@@ -240,15 +241,23 @@ responsiblity of the caller!"
                                     (close file)
                                     (setf file nil))))))
 
+(declaim (ftype (function (stream) source-iter) stream-line-iter))
 (defun stream-line-iter (stream)
   (make-source-iter :next (lambda ()
-                            (funcall (generator-func stream)))))
+                            (or (read-line stream nil) *done*))))
 
+(declaim (ftype (function (generator) source-iter) generator-iter))
 (defun generator-iter (generator)
   (make-source-iter :next (lambda ()
                             (funcall (generator-func generator)))))
 
 (defgeneric source->source-iter (source))
+
+(declaim (ftype (function (t) source-iter) ensure-source-iter))
+(defun ensure-source-iter (thing)
+  (if (source-iter-p thing)
+      thing
+      (values (source->source-iter thing))))
 
 (defmethod source->source-iter (fallback)
   (error 'no-transduce-implementation :type (type-of fallback)))
@@ -268,6 +277,7 @@ responsiblity of the caller!"
 (defmethod source->source-iter ((source generator))
   (generator-iter source))
 
+(declaim (ftype (function ((function (t t) t) t (function () t)) (values t t t)) source-next-1))
 (defun source-next-1 (f acc next)
   (let* ((item (funcall next))
          (done (eq item *done*)))
@@ -278,6 +288,7 @@ responsiblity of the caller!"
           (values (reduced-val v) item *done*)
           (values v item (if done *done* nil))))))
 
+(declaim (ftype (function (t t source-iter) *) source-iter-transduce))
 (defun source-iter-transduce (xform f source)
   (let* ((init (funcall f))
          (xf (funcall xform f))
