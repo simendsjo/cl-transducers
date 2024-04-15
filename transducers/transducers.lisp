@@ -8,7 +8,7 @@
   (:export #:transduce
            #:pipe
            #:for
-           #:iter #:iter* #:next)
+           #:iterator #:make-iterator #:iter #:iter* #:next)
   ;; --- Transducers -- ;;
   (:export #:pass #:map
            #:filter #:filter-map #:unique #:dedup
