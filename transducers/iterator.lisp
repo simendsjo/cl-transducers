@@ -62,7 +62,7 @@
       (setf acc new-acc)
       (values acc (iter-acc-input acc) done))))
 
-(declaim (ftype (function (iterator) (values iter-acc t t)) next))
+(declaim (ftype (function (iterator) (values t t t)) next))
 (defun next (iterator)
   (let ((acc-before (iterator-acc iterator)))
     (multiple-value-bind (acc-after source-value done) (next-1 iterator)
