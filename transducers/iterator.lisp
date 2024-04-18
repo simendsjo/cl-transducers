@@ -58,7 +58,7 @@ Returns a function that accepts a `source-iter' and creates an `iterator'."
                                             :i-p i-p))))))
       (%make-iterator :acc (funcall iter-f)
                       :f (funcall xform iter-f)
-                      :iter source))))
+                      :iter (ensure-source-iter source)))))
 
 (declaim (ftype (function (iterator) (values iter-acc t t)) next-1))
 (defun next-1 (iterator)
@@ -135,3 +135,16 @@ accumulator."
                      acc
                      (recurse)))))
       (recurse))))
+
+(defmacro iter* (source &rest transducers-and-reducer)
+  `(pipe* iterator ,source ,@transducers-and-reducer))
+
+(defmacro iter (source &rest transducers)
+  (if transducers
+      `(pipe* iterator ,source ,@transducers #'pass-reducer)
+      `(pipe* iterator ,source #'pass #'pass-reducer)))
+
+(defgeneric iterator (xform f source))
+
+(defmethod iterator (xform f source)
+  (funcall (make-iterator xform f) source))
