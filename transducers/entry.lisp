@@ -144,28 +144,32 @@ it is bound by `let', if it's a list, it's bound by `destructuring-bind'.
 (for ((k v) '((:a 1) (:b 2)))
   (format t "~a=~a~%" k v))
 
+(defun make-transducer (xform f)
+  (lambda (source)
+    (source-iter-transduce xform f (ensure-source-iter source))))
+
 (defmethod transduce (xform f (source source-iter))
-  (source-iter-transduce xform f source))
+  (funcall (make-transducer xform f) source))
 
 (defmethod transduce (xform f (source list))
   "Transducing over an alist works automatically via this method, and the pairs are
 streamed as-is as cons cells."
-  (source-iter-transduce xform f (list-iter source)))
+  (funcall (make-transducer xform f) (list-iter source)))
 
 (defmethod transduce (xform f (source cl:string))
-  (source-iter-transduce xform f (string-iter source)))
+  (funcall (make-transducer xform f) (string-iter source)))
 
 (defmethod transduce (xform f (source cl:vector))
-  (source-iter-transduce xform f (vector-iter source)))
+  (funcall (make-transducer xform f) (vector-iter source)))
 
 (defmethod transduce (xform f (source pathname))
   "Transduce over the lines of the file named by a FILENAME."
-  (source-iter-transduce xform f (file-line-iter source)))
+  (funcall (make-transducer xform f) (file-line-iter source)))
 
 (defmethod transduce (xform f (source stream))
   "Transduce over the lines of a given STREAM. Note: Closing the stream is the
 responsiblity of the caller!"
-  (source-iter-transduce xform f (stream-line-iter source)))
+  (funcall (make-transducer xform f) (stream-line-iter source)))
 
 (defmethod transduce (xform f (source cl:hash-table))
   "Yields key-value pairs as cons cells."
@@ -177,7 +181,7 @@ responsiblity of the caller!"
 # Conditions
 
 - `imbalanced-pist': if the number of keys and values do not match."
-  (source-iter-transduce xform f (plist-iter (plist-list source))))
+  (funcall (make-transducer xform f) (plist-iter (plist-list source))))
 
 (defmethod transduce (xform f source)
   "Fallback for types which don't implement this. Always errors.
@@ -185,7 +189,7 @@ responsiblity of the caller!"
 # Conditions
 
 - `no-transduce-implementation': an unsupported type was transduced over."
-  (source-iter-transduce xform f (source->source-iter source)))
+  (funcall (make-transducer xform f) (source->source-iter source)))
 
 (defstruct source-iter (:documentation "An iterator over a source of values.
 
@@ -385,21 +389,3 @@ when the next item is not `*done*'.
 #+nil
 (transduce #'pass #'count #p"/home/colin/history.txt")
 
-(declaim (ftype (function (source-iter &rest source-iter) source-iter) multi-iter))
-(defun multi-iter (source &rest more-sources)
-  (let ((sources (mapcar #'ensure-source-iter (cl:cons source more-sources))))
-    (make-source-iter
-     :initialize (lambda ()
-                   (dolist (source sources)
-                     (funcall (source-iter-initialize source))))
-     :finalize (lambda ()
-                 (dolist (source sources)
-                   (funcall (source-iter-finalize source))))
-     :next (lambda ()
-             (block next
-               (let ((result '()))
-                 (dolist (source sources (nreverse result))
-                   (let ((value (funcall (source-iter-next source))))
-                     (if (eq value *done*)
-                         (return-from next *done*)
-                         (push value result))))))))))
