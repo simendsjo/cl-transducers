@@ -107,3 +107,22 @@ strings are vectors too, so:
 
 #+nil
 (transduce (take 10) #'cons (cycle '(1 2 3)))
+
+(declaim (ftype (function (source-iter &rest source-iter) source-iter) multi-iter))
+(defun multi-iter (source &rest more-sources)
+  (let ((sources (mapcar #'ensure-source-iter (cl:cons source more-sources))))
+    (make-source-iter
+     :initialize (lambda ()
+                   (dolist (source sources)
+                     (funcall (source-iter-initialize source))))
+     :finalize (lambda ()
+                 (dolist (source sources)
+                   (funcall (source-iter-finalize source))))
+     :next (lambda ()
+             (block next
+               (let ((result '()))
+                 (dolist (source sources (nreverse result))
+                   (let ((value (funcall (source-iter-next source))))
+                     (if (eq value *done*)
+                         (return-from next *done*)
+                         (push value result))))))))))
