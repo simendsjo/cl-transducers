@@ -187,7 +187,23 @@ responsiblity of the caller!"
 - `no-transduce-implementation': an unsupported type was transduced over."
   (source-iter-transduce xform f (source->source-iter source)))
 
-(defstruct source-iter
+(defstruct source-iter (:documentation "An iterator over a source of values.
+
+`source-iter-next' should return the next element in the source, or `*done*'
+when finished.  After `source-iter-next' returns `*done*' it should continue to
+return `*done*' for each subsequent call without doing any work or fail. Each
+value, other than `*done*' must be returned once and only once in the same order
+as in the source.
+
+`source-iter-initialize' must be called before `source-iter-next' is called the
+first time. This should do required setup of the source, e.g. opening a file.
+The function should be idempontent to avoid problems if called more than once.
+
+`source-iter-finalize' must be called after `source-iter-next' returns `*done*'
+the first time, or when choosing to abort iteration. This should clean up any
+resources allocated by `source-iter-initialize'. The function should be
+idempotent to avoid problems if called more than once. `source-iter-next' must
+not be called after finalizing.")
   (next (lambda () *done*) :type (function () t))
   (initialize (lambda ()) :type (function () t))
   (finalize (lambda ()) :type (function () t)))
@@ -235,7 +251,8 @@ responsiblity of the caller!"
     (make-source-iter :next (lambda ()
                               (or (read-line file nil) *done*))
                       :initialize (lambda ()
-                                    (setf file (open pathname)))
+                                    (unless file
+                                      (setf file (open pathname))))
                       :finalize (lambda ()
                                   (when (and file (open-stream-p file))
                                     (close file)
@@ -251,10 +268,12 @@ responsiblity of the caller!"
   (make-source-iter :next (lambda ()
                             (funcall (generator-func generator)))))
 
-(defgeneric source->source-iter (source))
+(defgeneric source->source-iter (source)
+  (:documentation "Constructing a `source-iter' from SOURCE."))
 
 (declaim (ftype (function (t) source-iter) ensure-source-iter))
 (defun ensure-source-iter (thing)
+  "Calls `source->source-iter' iff THING is not `source-iter-p'"
   (if (source-iter-p thing)
       thing
       (values (source->source-iter thing))))
@@ -279,14 +298,25 @@ responsiblity of the caller!"
 
 (declaim (ftype (function ((function (t t) t) t (function () t)) (values t t t)) source-next-1))
 (defun source-next-1 (f acc next)
+  "Fetch and process the next value, i.e. (F ACC (NEXT))
+
+NEXT should be a function as described by `source-iter-next'.
+F is a \"reducer\" function for ACC. It can return `reduced' to tell that the
+iteration is done.
+
+Returns three values:
+1. The result of calling the reducer, F on ACC and the next item. Only called
+when the next item is not `*done*'.
+2. The item produced by NEXT (see `source-iter-next' for semantics).
+3. `*done*' if no item was produced or F decided to stop."
   (let* ((item (funcall next))
-         (done (eq item *done*)))
-    (let ((v (if done
-                 (values acc *done* *done*)
-                 (funcall f acc item))))
-      (if (reduced-p v)
-          (values (reduced-val v) item *done*)
-          (values v item (if done *done* nil))))))
+         (done (eq item *done*))
+         (new-acc (if done
+                      acc
+                      (funcall f acc item))))
+    (if (reduced-p new-acc)
+        (values (reduced-val new-acc) item *done*)
+        (values new-acc item (if done *done* nil)))))
 
 (declaim (ftype (function (t t source-iter) *) source-iter-transduce))
 (defun source-iter-transduce (xform f source)
@@ -298,14 +328,15 @@ responsiblity of the caller!"
 (defun source-iter-reduce (xf init source)
   (prog2
       (funcall (source-iter-initialize source))
-      (labels ((recurse (acc)
-                 (multiple-value-bind (new-acc item done) (source-next-1 xf acc (source-iter-next source))
-                   (declare (ignore item))
-                   (if done
-                       new-acc
-                       (recurse new-acc)))))
-        (recurse init))
-    (funcall (source-iter-finalize source))))
+      (unwind-protect
+           (labels ((recurse (acc)
+                      (multiple-value-bind (new-acc item done) (source-next-1 xf acc (source-iter-next source))
+                        (declare (ignore item))
+                        (if done
+                            new-acc
+                            (recurse new-acc)))))
+             (recurse init))
+        (funcall (source-iter-finalize source)))))
 
 (declaim (ftype (function (t t cl:hash-table) *) hash-table-transduce))
 (defun hash-table-transduce (xform f coll)
